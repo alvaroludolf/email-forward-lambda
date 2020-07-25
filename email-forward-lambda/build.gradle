@@ -1,0 +1,55 @@
+plugins {
+    id 'java-library'
+}
+
+repositories {
+    mavenCentral()
+    jcenter()
+}
+
+dependencies {
+
+    implementation 'com.amazonaws:aws-lambda-java-core:1.2.1'
+    implementation 'com.amazonaws:aws-lambda-java-events:2.2.9'
+	implementation "software.amazon.awssdk:lambda:2.10.72"
+	implementation "com.amazonaws:aws-xray-recorder-sdk-core:2.4.0"
+	implementation "com.amazonaws:aws-xray-recorder-sdk-aws-sdk-core:2.4.0"
+	implementation "com.amazonaws:aws-xray-recorder-sdk-aws-sdk-v2:2.4.0"
+	implementation "com.amazonaws:aws-xray-recorder-sdk-aws-sdk-v2-instrumentor:2.4.0"
+    runtimeOnly 'com.amazonaws:aws-lambda-java-log4j2:1.2.0'
+    
+	implementation 'com.google.code.gson:gson:2.8.6'
+    
+    implementation 'org.apache.logging.log4j:log4j-api:2.13.0'
+    implementation 'org.apache.logging.log4j:log4j-core:2.13.0'
+    runtimeOnly 'org.apache.logging.log4j:log4j-slf4j18-impl:2.13.0'
+    
+    
+    // Use JUnit test framework
+	testCompile group: 'org.junit.jupiter', name: 'junit-jupiter-api', version: '5.6.2'
+}
+
+task packageFat(type: Zip) {
+    from compileJava
+    from processResources
+    into('lib') {
+        from configurations.runtimeClasspath
+    }
+    dirMode = 0755
+    fileMode = 0755
+}
+
+task packageLibs(type: Zip) {
+    into('java/lib') {
+        from configurations.runtimeClasspath
+    }
+    dirMode = 0755
+    fileMode = 0755
+}
+
+task packageSkinny(type: Zip) {
+    from compileJava
+    from processResources
+}
+
+build.dependsOn packageSkinny
