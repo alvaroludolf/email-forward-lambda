@@ -8,10 +8,10 @@ import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.S3Object;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.mail.Address;
 import javax.mail.Authenticator;
 import javax.mail.Message;
 import javax.mail.MessagingException;
@@ -41,25 +41,25 @@ public class ForwardLambda implements RequestHandler<S3Event, String> {
 
             s3event.getRecords().forEach((record) -> {
 
+
+                String srcBucket = record.getS3().getBucket().getName();
+
+                // Object key may have spaces or unicode non-ASCII characters.
+                String srcKey = record.getS3().getObject().getUrlDecodedKey();
+
+                AmazonS3 s3Client = AmazonS3ClientBuilder.defaultClient();
+                S3Object s3Object = s3Client.getObject(srcBucket, srcKey);
+                InputStream objectData = s3Object.getObjectContent();
+
+                Properties prop = new Properties();
+                prop.put("mail.smtp.auth", true);
+                prop.put("mail.smtp.starttls.enable", "true");
+                prop.put("mail.smtp.ssl.enable", "false");
+                prop.put("mail.transport.protocol", "smtp");
+                prop.put("mail.smtp.host", System.getenv("smtp_server"));
+                prop.put("mail.smtp.port", System.getenv("smtp_port"));
+
                 try {
-
-                    String srcBucket = record.getS3().getBucket().getName();
-
-                    // Object key may have spaces or unicode non-ASCII characters.
-                    String srcKey = record.getS3().getObject().getUrlDecodedKey();
-
-                    AmazonS3 s3Client = AmazonS3ClientBuilder.defaultClient();
-                    S3Object s3Object = s3Client.getObject(srcBucket, srcKey);
-                    InputStream objectData = s3Object.getObjectContent();
-
-                    Properties prop = new Properties();
-                    prop.put("mail.smtp.auth", true);
-                    prop.put("mail.smtp.starttls.enable", "true");
-                    prop.put("mail.smtp.ssl.enable", "false");
-                    prop.put("mail.transport.protocol", "smtp");
-                    prop.put("mail.smtp.host", System.getenv("smtp_server"));
-                    prop.put("mail.smtp.port", System.getenv("smtp_port"));
-
                     Session session = Session.getInstance(prop, new Authenticator() {
                         @Override
                         protected PasswordAuthentication getPasswordAuthentication() {
@@ -67,20 +67,30 @@ public class ForwardLambda implements RequestHandler<S3Event, String> {
                         }
                     });
 
-
                     Message original = new MimeMessage(session, objectData);
                     Message forward = new MimeMessage(session);
 
-                    Address from = Arrays.stream(original.getAllRecipients())
+                    String from = Arrays.stream(original.getAllRecipients())
                             .filter(address -> address instanceof InternetAddress && ((InternetAddress) address).getAddress().endsWith("loom.com.br"))
                             .findFirst()
-                            .orElse(new InternetAddress(System.getenv("smtp_from")));
-                    Address to = new InternetAddress(System.getenv("smtp_to"));
+                            .map(address -> ((InternetAddress) address).getAddress())
+                            .orElse(System.getenv("smtp_from"));
 
-                    forward.setFrom(from);
+                    String to = System.getenv("smtp_to");
+
+                    String user = StringUtils.substringBefore(from, "@");
+                    String subject;
+                    String looomEmail = System.getenv("smtp_looom_email");
+                    if (looomEmail != null && looomEmail.contains(user)) {
+                        subject = "Fwd: [looom.com.br] " + original.getSubject();
+                    } else {
+                        subject = "Fwd: [loom.com.br] " + original.getSubject();
+                    }
+
+                    forward.setFrom(new InternetAddress(from));
                     forward.setReplyTo(original.getFrom());
-                    forward.setRecipient(Message.RecipientType.TO, to);
-                    forward.setSubject("Fwd: [from] " + original.getSubject());
+                    forward.setRecipient(Message.RecipientType.TO, new InternetAddress(to));
+                    forward.setSubject(subject);
 
                     MimeBodyPart messageBodyPart = new MimeBodyPart();
                     Multipart multipart = new MimeMultipart();
@@ -93,16 +103,16 @@ public class ForwardLambda implements RequestHandler<S3Event, String> {
                     Transport.send(forward);
 
                     logger.info("Message forwarded");
-
-                    s3Client.deleteObject(srcBucket, srcKey);
-
                 } catch (MessagingException e) {
                     logger.error(e.toString(), e);
                 }
 
+                s3Client.deleteObject(srcBucket, srcKey);
+
+
             });
 
-            return "Ok";
+            return "ok";
         } catch (RuntimeException e) {
             throw new RuntimeException(e);
         }
