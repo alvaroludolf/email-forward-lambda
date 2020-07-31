@@ -1,0 +1,10 @@
+group('br.com.loom')
+
+subprojects {
+
+    repositories {
+        mavenCentral()
+        jcenter()
+    }
+
+}
