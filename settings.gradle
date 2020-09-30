@@ -9,4 +9,6 @@
 
 rootProject.name = 'email-forward-lambda'
 include ':email-forward-lambda'
+include ':source-lambda'
+include ':destination-lambda'
 
